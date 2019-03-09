@@ -160,12 +160,6 @@ class Animation:
 
 
 def find_images(IMAGE_TYPE, DIFFUSE_NAME = None, MODEL_NAME = None, MPART_NAME = None):
-
-    """
-    SCENE_DIFFUSE-diffuse_name
-    MODEL_DIFFUSE-diffuse_name-model_name
-    MPART_DIFFUSE-diffuse_name-model_name-mpart_name
-    """
     output = []
     for image in bpy.data.images:
         blocks = image.name.split('-')
@@ -433,7 +427,6 @@ def export_scene(base_path, filename):
     }
 
     fill_scene_data(SCENE_DATA, base_path)
-    print (generate_scene_export_str(SCENE_DATA, base_path))
 
     with open(os.path.join(base_path, filename), 'w') as f:
         out = generate_scene_export_str(SCENE_DATA, base_path)
