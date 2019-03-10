@@ -30,10 +30,7 @@ LRSM        name l r s, data
 ANIMATION   name fps keyframe_count
 KEYFRAME    keyframe_index l r s data
 DIFFUSEMAP  name relative_path
-V  vertex
-VT vertex Texture Coordinate
-VN VERTEX Normal
-F v/vt/vn
+VERTEX      vertex/vertex_normal/vertex_tex_coord
 """
 
 import bpy
