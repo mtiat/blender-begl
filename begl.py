@@ -1054,7 +1054,4 @@ class BEGLToolbar(bpy.types.Operator):
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
 
-for action in bpy.data.actions:
-    print (action.name)
-
 bpy.utils.register_class(BEGLToolbar)
