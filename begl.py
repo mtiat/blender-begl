@@ -59,10 +59,8 @@ IMAGE_TYPE_MPART_DIFFUSE      = "MPART_DIFFUSE"
 # OBJECT TYPE
 BLENDER_OBJECT                = 'BLENDER'
 EXPORT_OBJECT                 = 'EXPORT'
-
-#ACTION_OBJECT
-MODEL_MARKER_OBJECT           = 'MMO'
-SCENE_MARKER_OBJECT           = 'SMO'
+MODEL_OBJECT                  = 'MO'
+SCENE_OBJECT                = 'SO'
 
 scene = bpy.context.scene
 
@@ -209,8 +207,13 @@ def find_meshed_objects(OBJECT_TYPE, MODEL_NAME=None, MPART_NAME=None):
         output.append(obj)
     return output
 
+def find_objects(OBJECT_TYPE, name):
+    me = bpy.data.meshes.new("mesh datablock name")
+    ob = bpy.data.objects.new("object name", me)
+    bpy.context.scene.objects.link(ob)
+
 def get_scene_model_names():
-    return set(obj.name.split('-')[1] for obj in find_meshed_objects(EXPORT_OBJECT))
+    return set(obj.name.split('-')[1] for obj in find_meshed_objects(MODEL_OBJECT))
 
 def get_model_mpart_names(model_name):
     return set(obj.name.split('-')[2] for obj in find_meshed_objects(EXPORT_OBJECT, model_name))
@@ -247,7 +250,7 @@ def generate_mpart_data(base_path, model_name, mpart_name):
 
 def generate_model_data(base_path, model_name):
 
-    mmo = find_meshed_objects(MODEL_MARKER_OBJECT, model_name)
+    mmo = find_meshed_objects(MODEL_OBJECT, model_name)
     mmo = mmo[0] if mmo else None
 
     MODEL_DATA = {
@@ -399,7 +402,7 @@ def generate_scene_export_str(SCENE_DATA, base_path):
 def export_scene(base_path, filename):
 
     def fill_scene_data(SCENE_DATA, base_path):
-        smo = find_meshed_objects(SCENE_MARKER_OBJECT)
+        smo = find_meshed_objects(SCENE_OBJECT)
         smo = smo[0] if smo else None
 
         for m in find_action(ACTION_TYPE_SCENE, ACTION_KIND_LM):
@@ -432,7 +435,13 @@ def export_scene(base_path, filename):
         out = generate_scene_export_str(SCENE_DATA, base_path)
         f.write(out)
     f.close()
+    return True
 
+def is_object_present(OBJECT_TYPE, MODEL_NAME):
+    return len(find_meshed_objects(OBJECT_TYPE, MODEL_NAME))
+
+def is_mpart_present(OBJECT_TYPE, MODEL_NAME, MPART_NAME):
+    return len(find_meshed_objects(OBJECT_TYPE, MODEL_NAME, MPART_NAME))
 
 class BEGLToolbar(bpy.types.Operator):
     bl_idname = 'object.begl_toolbar'
@@ -440,17 +449,21 @@ class BEGLToolbar(bpy.types.Operator):
 
     def get_property_values(self):
         return {
-            'BASE_PATH':           self.prop_base_path  if self.prop_base_path else None,
-            'FILE_NAME':           self.prop_file_name  if self.prop_file_name else None,
-            'MODEL_NAME':          self.prop_model_name if not self.prop_model_name == 'None'  else None,
-            'MPART_NAME':          self.prop_mpart_name if not self.prop_mpart_name == '*'     else None,
-            'ACTION_TYPE':         self.prop_action_type, 
-            'ACTION_KIND':         self.prop_action_kind,
-            'ACTION_NAME':         self.prop_action_name if not self.prop_action_name == 'None' else None,
-            'NEW_ACTION_NAME':     self.prop_new_action_name if self.prop_new_action_name   else None, 
-            'IMAGE_TYPE':          self.prop_image_type, 
-            'NEW_IMAGE_NAME':      self.prop_new_image_name if self.prop_new_image_name else None,
-            'TEX_NODE_IMAGE_NAME': self.prop_tex_node_image_name if not self.prop_tex_node_image_name == 'None' else None, 
+            'BASE_PATH':             self.prop_base_path  if self.prop_base_path else None,
+            'FILE_NAME':             self.prop_file_name  if self.prop_file_name else None,
+            'NEW_SCENE_OBJECT_NAME': self.prop_new_scene_object_name if self.prop_new_scene_object_name else None,
+            'MODEL_NAME':            self.prop_model_name if not self.prop_model_name == 'None'  else None,
+            'MPART_NAME':            self.prop_mpart_name if not self.prop_mpart_name == '*'     else None,
+            'NEW_MODEL_NAME':        self.prop_new_model_name if self.prop_new_model_name else None,
+            'NEW_MPART_NAME':        self.prop_new_mpart_name if self.prop_new_mpart_name else None,
+            'NEW_MPART_PRIMITIVE':   self.prop_new_mpart_mesh if self.prop_new_mpart_mesh else None,
+            'ACTION_TYPE':           self.prop_action_type, 
+            'ACTION_KIND':           self.prop_action_kind,
+            'ACTION_NAME':           self.prop_action_name if not self.prop_action_name == 'None' else None,
+            'NEW_ACTION_NAME':       self.prop_new_action_name if self.prop_new_action_name   else None, 
+            'IMAGE_TYPE':            self.prop_image_type, 
+            'NEW_IMAGE_NAME':        self.prop_new_image_name if self.prop_new_image_name else None,
+            'TEX_NODE_IMAGE_NAME':   self.prop_tex_node_image_name if not self.prop_tex_node_image_name == 'None' else None, 
         }
 
 
@@ -464,9 +477,15 @@ class BEGLToolbar(bpy.types.Operator):
         return out
 
     def get_prop_mpart_name_enum_items(self, context):
-        MODEL_NAME = self.prop_model_name
         out = [('*', '*', 'all selected')]
-        return out 
+        if not self.prop_mpart_selection:
+            return out 
+
+        MODEL_NAME = self.prop_model_name
+        for MPART_NAME in get_model_mpart_names(MODEL_NAME):
+            item = (MPART_NAME, MPART_NAME, 'mpart')
+            out.append(item)
+        return out
 
     def get_prop_action_type_enum_items(self, context):
         out = [
@@ -494,7 +513,12 @@ class BEGLToolbar(bpy.types.Operator):
             actions = find_action(ACTION_TYPE_MODEL, self.prop_action_kind, None, self.prop_model_name)
 
         if self.prop_action_type == ACTION_TYPE_MPART:
-            actions = find_action(ACTION_TYPE_MPART, self.prop_action_kind, None, self.prop_model_name)
+            actions = find_action(
+                                ACTION_TYPE_MPART, 
+                                self.prop_action_kind, 
+                                None, 
+                                self.prop_model_name, 
+                                self.prop_mpart_name if not self.prop_mpart_name == '*' else None)
 
         out = []
         seen = set()
@@ -537,9 +561,19 @@ class BEGLToolbar(bpy.types.Operator):
             out.append(('None', '-', 'empty'))
         return out 
 
+    def get_prop_new_mpart_mesh_enum_items(self, context):
+        out = [
+                ('CUBE', 'CUBE', 'cube')
+                ]
+        return out 
+
     def clean_up_property_values(self):
         self.prop_export = False
         self.prop_clean_up = False
+        self.prop_create_scene_object = False
+        self.prop_create_new_model = False
+        self.prop_create_new_mpart = False
+        self.prop_mpart_selection = False
         self.prop_mpart_name = '*'
         self.prop_smart_uv_project = False
         self.prop_set_action = False
@@ -548,27 +582,96 @@ class BEGLToolbar(bpy.types.Operator):
         self.prop_create_material = False
 
     prop_export              = bpy.props.BoolProperty(name='export', default=False)
+    prop_clean_up            = bpy.props.BoolProperty(
+                                            name='clean up', 
+                                            default=False,
+                                            description='remove actions and images with zero users')
+
     prop_base_path           = bpy.props.StringProperty(name='path')
     prop_file_name           = bpy.props.StringProperty(name='filename')
-    prop_clean_up            = bpy.props.BoolProperty(name='clean up', default=False)
-    prop_model_name          = bpy.props.EnumProperty(name='MODEL',       items=get_prop_model_name_enum_items)
-    prop_mpart_name          = bpy.props.EnumProperty(name='MPART',       items=get_prop_mpart_name_enum_items)
-    prop_action_type         = bpy.props.EnumProperty(name='ACTION TYPE', items=get_prop_action_type_enum_items)
-    prop_action_kind         = bpy.props.EnumProperty(name='ACTION KIND', items=get_prop_action_kind_enum_items)
-    prop_action_name         = bpy.props.EnumProperty(name='available actions', items=get_prop_action_name_enum_items)
 
-    prop_smart_uv_project    = bpy.props.BoolProperty(name='smart uv project', default=False)
-    prop_set_action          = bpy.props.BoolProperty(name='mark action current', default=False)
+    prop_create_scene_object = bpy.props.BoolProperty(
+                                            name='create scene object', 
+                                            default=False,
+                                            description='create a scene SM object')
 
-    prop_create_action       = bpy.props.BoolProperty(name='create action', default=False)
+    prop_new_scene_object_name   = bpy.props.StringProperty(name='scene object name')
+
+    prop_model_name          = bpy.props.EnumProperty(
+                                            name='current model',
+                                            items=get_prop_model_name_enum_items)
+    
+    prop_mpart_selection     = bpy.props.BoolProperty(
+                                            name='per mpart selection', 
+                                            default=False,
+                                            description='enable per mpart selection else select all')
+
+    prop_mpart_name          = bpy.props.EnumProperty(
+                                            name='current mpart',
+                                            items=get_prop_mpart_name_enum_items)
+
+
+    prop_create_new_model   = bpy.props.BoolProperty(
+                                            name='create model',
+                                            default=False,
+                                            description='create new model')
+    
+    prop_new_model_name      = bpy.props.StringProperty(name='new model name')
+
+
+    prop_create_new_mpart    = bpy.props.BoolProperty(
+                                            name='create mpart',
+                                            default=False,
+                                            description='create new mpart')
+
+    prop_new_mpart_name      = bpy.props.StringProperty(name='new mpart name')
+    prop_new_mpart_mesh      = bpy.props.EnumProperty(
+                                            name='new mpart mesh',
+                                            items=get_prop_new_mpart_mesh_enum_items)
+
+    prop_smart_uv_project    = bpy.props.BoolProperty(
+                                            name='smart uv project', 
+                                            default=False,
+                                            description='smart uv project selected model')
+
+    prop_action_type         = bpy.props.EnumProperty(
+                                            name='action type',
+                                            items=get_prop_action_type_enum_items,
+                                            description='action type')
+
+    prop_action_kind         = bpy.props.EnumProperty(
+                                            name='action kind',
+                                            items=get_prop_action_kind_enum_items,
+                                            description='action kind')
+    
+    prop_set_action          = bpy.props.BoolProperty(
+                                            name='mark action current', 
+                                            default=False,
+                                            description='make action curent for model/mpart')
+
+    prop_action_name         = bpy.props.EnumProperty(
+                                            name='available actions', 
+                                            items=get_prop_action_name_enum_items,
+                                            description='available actions'
+                                            )
+
+    prop_create_action       = bpy.props.BoolProperty(
+                                        name='create action', 
+                                        default=False,
+                                        description='create new action')
+
     prop_new_action_name     = bpy.props.StringProperty(name='new action name')
 
     prop_create_image        = bpy.props.BoolProperty(name='create image', default=False)
-    prop_image_type          = bpy.props.EnumProperty(name='IMAGE TYPE', items=get_prop_image_type_enum_items)
+    prop_image_type          = bpy.props.EnumProperty(name='image type', items=get_prop_image_type_enum_items)
     prop_new_image_name      = bpy.props.StringProperty(name='new image name')
 
     prop_create_material     = bpy.props.BoolProperty(name='create materials', default=False)
-    prop_tex_node_image_name = bpy.props.EnumProperty(name='Tex Node Image', items=get_prop_tex_node_image_name_enum_items)
+    prop_tex_node_image_name = bpy.props.EnumProperty(
+                                            name='tex node image', 
+                                            items=get_prop_tex_node_image_name_enum_items,
+                                            description='image for image texture node while creating materials'
+                                            )
 
     def raise_error(self, msg):
         self.report({'ERROR'}, msg)
@@ -597,10 +700,46 @@ class BEGLToolbar(bpy.types.Operator):
         return True
 
     def operation_set_action_scene(self, data):
-        return self.raise_error('%s not supported' % (ACTION_TYPE_SCENE)) and False 
+        required = {'ACTION_TYPE', 'ACTION_KIND', 'ACTION_NAME'}
+
+        if not self.validate_data(data, required):
+            return self.raise_error("invalid form") and False
+
+        objs = find_meshed_objects(SCENE_OBJECT)
+        if not objs:
+            return self.raise_error('scene object not found') and False
+
+        obj = objs[0]
+        if not obj.animation_data:
+            obj.animation_data_create()
+
+        actions = find_action(data['ACTION_TYPE'], data['ACTION_KIND'], data['ACTION_NAME'])
+        if not actions:
+            return self.raise_error('%s action not found' % (data['ACTION_NAME'])) and False
+
+        obj.animation_data.action = actions[0]
+        return True
 
     def operation_set_action_model(self, data):
-        return self.raise_error('%s not supported' % (ACTION_TYPE_MODEL)) and False 
+        required = {'ACTION_TYPE', 'ACTION_KIND', 'ACTION_NAME', 'MODEL_NAME'}
+        
+        if not self.validate_data(data, required):
+            return self.raise_error('invalid form') and False
+
+        objs = find_meshed_objects(MODEL_OBJECT, data['MODEL_NAME'])
+        if not objs:
+            return self.raise_error('%s model not found' % (data['MODEL_NAME'])) and False
+
+        obj = objs[0]
+        if not obj.animation_data:
+            obj.animation_data_create()
+
+        actions = find_action(data['ACTION_TYPE'], data['ACTION_KIND'], data['ACTION_NAME'], data['MODEL_NAME'])
+        if not actions:
+            return self.raise_error('%s action not found for %s' % (data['ACTION_NAME'], data['MODEL_NAME'])) and False
+
+        obj.animation_data.action = actions[0]
+        return True
 
     def operation_set_action_mpart(self, data):
         required = {'ACTION_TYPE', 'ACTION_KIND', 'ACTION_NAME', 'MODEL_NAME'}
@@ -799,7 +938,7 @@ class BEGLToolbar(bpy.types.Operator):
         if not self.validate_data(data, required):
             return self.raise_error("invalid form") and False
 
-        export_scene(data['BASE_PATH'], data['FILE_NAME'])
+        return export_scene(data['BASE_PATH'], data['FILE_NAME'])
 
     def operation_prop_clean_up(self, data):
         for img in bpy.data.images:
@@ -809,11 +948,80 @@ class BEGLToolbar(bpy.types.Operator):
         for action in bpy.data.actions:
             if action.users == 0:
                 bpy.data.actions.remove(action)
+        return True
 
-    def bgl_execute(self):
+    def operation_prop_create_new_model(self, data, context):
+        required = {'NEW_MODEL_NAME'}
+
+        if not self.validate_data(data, required):
+            return self.raise_error('invalid model name') and False
+
+        if find_meshed_objects(MODEL_OBJECT, data['NEW_MODEL_NAME']):
+            return self.raise_error('model %s already present' % (data['NEW_MODEL_NAME']))
+
+        object_name = '%s-%s' % (MODEL_OBJECT, data['NEW_MODEL_NAME'])
+
+        if '__BEGL__EMPTY_MESH__' not in bpy.data.meshes:
+            bpy.data.meshes.new('__BEGL__EMPTY_MESH__')
+
+        new_mesh = bpy.data.meshes['__BEGL__EMPTY_MESH__']
+        new_obj  = bpy.data.objects.new(object_name, new_mesh)
+        context.scene.objects.link(new_obj)
+        return True 
+
+    def operation_prop_create_new_mpart(self, data, context):
+        required = {'MODEL_NAME', 'NEW_MPART_NAME', 'NEW_MPART_PRIMITIVE'}
+        
+        if not self.validate_data(data, required):
+            return self.raise_error('invalid form') and False
+
+        if not find_meshed_objects(MODEL_OBJECT, data['MODEL_NAME']):
+            return self.raise_error('invalid model name %s', data['MODEL_NAME'])
+
+        if find_meshed_objects(EXPORT_OBJECT, data['MODEL_NAME'], data['NEW_MPART_NAME']):
+            return self.raise_error('mpart already exists')
+
+        MPART_NAME = '%s-%s-%s' % (EXPORT_OBJECT, data['MODEL_NAME'], data['NEW_MPART_NAME'])
+
+        if data['NEW_MPART_PRIMITIVE'] == 'CUBE':
+            bpy.ops.mesh.primitive_cube_add()
+            context.scene.objects.active.name = MPART_NAME
+            context.scene.objects.active.data.name = '%s-MESH' % (MPART_NAME)
+
+        return True
+
+    def operation_prop_create_scene_object(self, data, context):
+        required = {'NEW_SCENE_OBJECT_NAME'}
+
+        if not self.validate_data(data, required):
+            return self.raise_error('invalid form') and False
+
+        if find_meshed_objects(SCENE_OBJECT):
+            return self.raise_error('scene object already present')
+
+        object_name = '%s-%s' % (SCENE_OBJECT, data['NEW_SCENE_OBJECT_NAME'])
+
+        if '__BEGL__EMPTY_MESH__' not in bpy.data.meshes:
+            bpy.data.meshes.new('__BEGL__EMPTY_MESH__')
+
+        new_mesh = bpy.data.meshes['__BEGL__EMPTY_MESH__']
+        new_obj  = bpy.data.objects.new(object_name, new_mesh)
+        context.scene.objects.link(new_obj)
+        return True 
+
+    def begl_execute(self, context):
         data = self.get_property_values()
 
         if self.prop_clean_up and not self.operation_prop_clean_up(data):
+            return 
+
+        if self.prop_create_scene_object and not self.operation_prop_create_scene_object(data, context):
+            return
+
+        if self.prop_create_new_model and not self.operation_prop_create_new_model(data, context):
+            return
+
+        if self.prop_create_new_mpart and not self.operation_prop_create_new_mpart(data, context):
             return 
 
         if self.prop_smart_uv_project and not self.operation_smart_uv_project(data):
@@ -835,7 +1043,7 @@ class BEGLToolbar(bpy.types.Operator):
             return
 
     def execute(self, context):
-        self.bgl_execute()
+        self.begl_execute(context)
         return {'FINISHED'}
  
     def bgl_invoke(self):
@@ -845,5 +1053,8 @@ class BEGLToolbar(bpy.types.Operator):
         self.bgl_invoke()
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
+
+for action in bpy.data.actions:
+    print (action.name)
 
 bpy.utils.register_class(BEGLToolbar)
